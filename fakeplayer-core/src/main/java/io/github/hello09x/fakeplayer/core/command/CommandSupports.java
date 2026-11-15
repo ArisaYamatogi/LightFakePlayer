@@ -53,9 +53,9 @@ public abstract class CommandSupports {
                                 int32("ticks", 1),
                                 fakeplayer("name"))
                         .executes((sender, args) -> {
-                    int interval = (int) args.getOptional("ticks").orElse(1);
-                    actionCommand.action(sender, args, action, ActionSetting.interval(interval));
-                }),
+                            int interval = (int) args.getOptional("ticks").orElse(1);
+                            actionCommand.action(sender, args, action, ActionSetting.interval(interval));
+                        }),
                 command("stop")
                         .withShortDescription("fakeplayer.command.action.stop")
                         .withOptionalArguments(fakeplayer("name"))
@@ -66,30 +66,29 @@ public abstract class CommandSupports {
     public static @NotNull Argument<Player> fakeplayer(@NotNull String nodeName, @Nullable Predicate<Player> predicate) {
         return new CustomArgument<>(new StringArgument(nodeName), info -> {
             var sender = info.sender();
-            var target = sender.isOp()
-                    ? manager.get(info.currentInput())
-                    : manager.get(sender, info.currentInput());
-            if (predicate != null && target != null && !predicate.test(target)) {
-                target = null;
+            var target = manager.get(sender, info.currentInput());
+            if (target == null) {
+                throw CustomArgument.CustomArgumentException.fromAdventureComponent(
+                        translatable("fakeplayer.command.generic.error.non-matching-fake-player"));
+            }
+            if (predicate != null && !predicate.test(target)) {
+                throw CustomArgument.CustomArgumentException.fromAdventureComponent(
+                        translatable("fakeplayer.command.generic.error.non-matching-fake-player"));
             }
             return target;
         }).replaceSuggestions(ArgumentSuggestions.strings(info -> {
             var sender = info.sender();
             var arg = info.currentArg();
 
-            var targets = sender.isOp()
-                    ? manager.getAll(predicate)
-                    : manager.getAll(sender, predicate);
-
+            var targets = manager.getAll(sender, predicate);
             var names = targets.stream().map(Player::getName);
             if (!arg.isEmpty()) {
-                names = names.filter(n -> n.toLowerCase().contains(arg));
+                names = names.filter(n -> n.toLowerCase(Locale.ROOT).contains(arg.toLowerCase(Locale.ROOT)));
             }
 
             return names.toArray(String[]::new);
         }));
     }
-
 
     public static @NotNull Argument<Player> fakeplayer(@NotNull String nodeName) {
         return fakeplayer(nodeName, null);
@@ -104,22 +103,20 @@ public abstract class CommandSupports {
                 return manager.getAll(sender);
             }
 
-            var target = sender.isOp()
-                    ? manager.get(arg)
-                    : manager.get(sender, arg);
-
-            return target == null ? Collections.emptyList() : Collections.singletonList(target);
+            var target = manager.get(sender, arg);
+            if (target == null) {
+                throw CustomArgument.CustomArgumentException.fromAdventureComponent(
+                        translatable("fakeplayer.command.generic.error.non-matching-fake-player"));
+            }
+            return Collections.singletonList(target);
         }).replaceSuggestions(ArgumentSuggestions.strings(info -> {
             var sender = info.sender();
-            var arg = info.currentArg().toLowerCase();
+            var arg = info.currentArg().toLowerCase(Locale.ROOT);
 
-            var fakes = sender.isOp()
-                    ? manager.getAll()
-                    : manager.getAll(sender);
-
+            var fakes = manager.getAll(sender);
             var names = Stream.concat(fakes.stream().map(Player::getName), Stream.of("-a"));
             if (!arg.isEmpty()) {
-                names = names.filter(n -> n.toLowerCase().contains(arg));
+                names = names.filter(n -> n.toLowerCase(Locale.ROOT).contains(arg));
             }
 
             return names.toArray(String[]::new);
@@ -150,7 +147,6 @@ public abstract class CommandSupports {
             return key;
         }).replaceSuggestions(ArgumentSuggestions.strings(Arrays.stream(Feature.values()).filter(predicate).map(Enum::name).toArray(String[]::new)));
     }
-
 
     public static @NotNull Argument<String> configValue(@NotNull String configKeyNodeName, @NotNull String nodeName) {
         return new CustomArgument<String, String>(new StringArgument(nodeName), info -> {
@@ -187,15 +183,11 @@ public abstract class CommandSupports {
     }
 
     public static boolean needSelect(@NotNull CommandSender sender) {
-        return sender.isOp() || (config.getPlayerLimit() > 1 && manager.countByCreator(sender) > 0);
+        return config.getPlayerLimit() > 1 && manager.countByCreator(sender) > 0;
     }
 
     public static boolean hasFakeplayer(@NotNull CommandSender sender) {
-        return sender.isOp() || manager.countByCreator(sender) > 0;
-    }
-
-    public static boolean isCmdAvailable(@NotNull CommandSender sender) {
-        return (sender.hasPermission(Permission.cmd) || !config.getAllowCommands().isEmpty()) && hasFakeplayer(sender);
+        return manager.countByCreator(sender) > 0;
     }
 
 }

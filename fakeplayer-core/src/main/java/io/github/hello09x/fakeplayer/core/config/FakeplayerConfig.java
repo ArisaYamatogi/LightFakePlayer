@@ -1,6 +1,5 @@
 package io.github.hello09x.fakeplayer.core.config;
 
-
 import com.google.common.annotations.Beta;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -21,8 +20,6 @@ import java.time.Duration;
 import java.util.*;
 import java.util.function.Function;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 import static net.kyori.adventure.text.Component.translatable;
@@ -34,8 +31,6 @@ public class FakeplayerConfig extends PluginConfig {
 
     private final static Logger log = Main.getInstance().getLogger();
 
-    private final static String defaultNameChars = "^[a-zA-Z0-9_]+$";
-
     /**
      * 每位玩家最多多少个假人
      */
@@ -45,16 +40,6 @@ public class FakeplayerConfig extends PluginConfig {
      * 服务器最多多少个假人
      */
     private int serverLimit;
-
-    /**
-     * 命名模版
-     */
-    private String nameTemplate;
-
-    /**
-     * 假人名称前缀
-     */
-    private String namePrefix;
 
     /**
      * 名称样式, 颜色
@@ -112,11 +97,6 @@ public class FakeplayerConfig extends PluginConfig {
     private List<String> selfCommands;
 
     /**
-     * 退出时是否丢弃背包物品
-     */
-    private boolean dropInventoryOnQuiting;
-
-    /**
      * 是否保存假人存档
      */
     private boolean persistData;
@@ -127,20 +107,9 @@ public class FakeplayerConfig extends PluginConfig {
     private boolean kickOnDead;
 
     /**
-     * 自定义名称规则
-     */
-    private Pattern namePattern;
-
-    /**
      * 检测更新
      */
     private boolean checkForUpdates;
-
-    /**
-     * 允许执行的命令
-     */
-    @Deprecated
-    private Set<String> allowCommands;
 
     /**
      * 默认假人存活时间
@@ -159,17 +128,45 @@ public class FakeplayerConfig extends PluginConfig {
     private PreventKicking preventKicking;
 
     /**
-     * invsee 实现方式
-     */
-    private InvseeImplement invseeImplement;
-
-    /**
      * 真实皮肤
      */
     @Beta
     private boolean defaultOnlineSkin;
 
+    /**
+     * 默认假人特性
+     */
     private Map<Feature, String> defaultFeatures;
+
+    /**
+     * 是否启用按假人存活时长扣费
+     */
+    private boolean chargingEnabled;
+
+    /**
+     * 扣费间隔（分钟，支持小数）
+     */
+    private double chargingIntervalMinutes;
+
+    /**
+     * 扣费时执行的控制台命令
+     */
+    private List<String> chargingCommands;
+
+    /**
+     * 是否启用 AuthMe 自动注册/登录
+     */
+    private boolean authmeEnabled;
+
+    /**
+     * AuthMe 注册命令
+     */
+    private List<String> authmeRegisterCommands;
+
+    /**
+     * AuthMe 登录命令
+     */
+    private List<String> authmeLoginCommands;
 
     @Inject
     public FakeplayerConfig() {
@@ -193,29 +190,30 @@ public class FakeplayerConfig extends PluginConfig {
         this.afterSpawnCommands = file.getStringList("after-spawn-commands");
         this.postQuitCommands = file.getStringList("post-quit-commands");
         this.afterQuitCommands = file.getStringList("after-quit-commands");
-        this.nameTemplate = file.getString("name-template", "");
-        this.dropInventoryOnQuiting = file.getBoolean("drop-inventory-on-quiting", true);
         this.persistData = file.getBoolean("persist-data", true);
         this.kickOnDead = file.getBoolean("kick-on-dead", true);
         this.checkForUpdates = file.getBoolean("check-for-updates", true);
-        this.namePattern = getNamePattern(file);
-        this.preventKicking = this.getPreventKicking(file);
-        this.nameTemplate = getNameTemplate(file);
-        this.namePrefix = file.getString("name-prefix", "");
         this.lifespan = getLifespan(file);
-        this.allowCommands = file.getStringList("allow-commands")
-                                 .stream()
-                                 .map(c -> c.startsWith("/") ? c.substring(1) : c)
-                                 .filter(c -> !c.isBlank())
-                                 .collect(Collectors.toSet());
-
+        this.preventKicking = this.getPreventKicking(file);
         this.defaultOnlineSkin = file.getBoolean("default-online-skin", false);
         this.defaultFeatures = Arrays.stream(Feature.values())
                                      .collect(Collectors.toMap(Function.identity(), key -> file.getString("default-features." + key.name(), key.getDefaultOption())));
-        this.invseeImplement = ConfigUtils.getEnum(file, "invsee-implement", InvseeImplement.class, InvseeImplement.AUTO);
         this.debug = file.getBoolean("debug", false);
         this.nameStyleColor = this.getNameStyleColor(file);
         this.nameStyleDecorations = this.getNameStyleDecorations(file);
+
+        this.chargingEnabled = file.getBoolean("charging.enabled", false);
+        this.chargingIntervalMinutes = file.getDouble("charging.interval-minutes", 60D);
+        this.chargingCommands = file.getStringList("charging.commands");
+
+        this.authmeEnabled = file.getBoolean("authme.enabled", true);
+        this.authmeRegisterCommands = file.getStringList("authme.register-commands");
+        this.authmeLoginCommands = file.getStringList("authme.login-commands");
+
+        if (this.chargingEnabled && this.chargingIntervalMinutes <= 0) {
+            log.warning("charging.interval-minutes must be greater than 0, charging is disabled");
+            this.chargingEnabled = false;
+        }
 
         if (this.isConfigFileOutOfDate()) {
             Bukkit.getScheduler().runTaskLater(Main.getInstance(), () -> {
@@ -224,23 +222,6 @@ public class FakeplayerConfig extends PluginConfig {
                 }
             }, 1);
         }
-
-        if (!this.allowCommands.isEmpty()) {
-            log.warning("allow-commands is deprecated which will be removed at 0.4.0, you should use Permissions Plugin to assign permission groups to fake players.");
-        }
-
-        var preparingCommands = file.getStringList("preparing-commands");
-        if (!preparingCommands.isEmpty()) {
-            log.warning("preparing-commands is deprecated, use post-spawn-commands instead.");
-            this.postSpawnCommands.addAll(preparingCommands);
-        }
-
-        var destroyCommands = file.getStringList("destroy-commands");
-        if (!destroyCommands.isEmpty()) {
-            log.warning("destroy-commands is deprecated, use post-quit-commands instead.");
-            this.postQuitCommands.addAll(destroyCommands);
-        }
-
     }
 
     private @Nullable Duration getLifespan(@NotNull FileConfiguration file) {
@@ -251,31 +232,7 @@ public class FakeplayerConfig extends PluginConfig {
         return Duration.ofMinutes(minutes);
     }
 
-
-    private @NotNull Pattern getNamePattern(@NotNull FileConfiguration file) {
-        try {
-            return Pattern.compile(file.getString("name-pattern", defaultNameChars));
-        } catch (PatternSyntaxException e) {
-            log.warning("Invalid name-pattern: " + file.getString("name-chars"));
-            return Pattern.compile(defaultNameChars);
-        }
-    }
-
-    private @NotNull String getNameTemplate(@NotNull FileConfiguration file) {
-        var tmpl = file.getString("name-template", "");
-        if (tmpl.startsWith("-") || tmpl.startsWith("@")) {
-            log.warning("Invalid name template: " + this.nameTemplate);
-            return "";
-        }
-        return tmpl;
-    }
-
     private @NotNull PreventKicking getPreventKicking(@NotNull FileConfiguration file) {
-        if (file.getBoolean("prevent-kicked-on-spawning", false)) {
-            log.warning("prevent-kicked-on-spawning is deprecated which will be removed at 0.4.0, use prevent-kick instead");
-            return PreventKicking.ON_SPAWNING;
-        }
-
         return ConfigUtils.getEnum(file, "prevent-kicking", PreventKicking.class, PreventKicking.ON_SPAWNING);
     }
 

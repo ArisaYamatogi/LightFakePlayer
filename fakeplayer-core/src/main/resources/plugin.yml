@@ -8,20 +8,20 @@ depend:
   - CommandAPI
 
 softdepend:
-  - OpenInv
+  - AuthMe
+  - LuckPerms
   - PlaceholderAPI
+  - Vault
 
 permissions:
   fakeplayer.command.spawn:
-    description: 'Allow player to run /fp spawn'
-  fakeplayer.command.spawn.name:
-    description: 'Allow player to run /fp spawn and specify a name'
+    description: 'Allow player to run /fp spawn <id>'
   fakeplayer.command.spawn.location:
-    description: 'Allow player to run /fp spawn and specify a spawn location'
+    description: 'Allow player to run /fp spawn <id> [world] [location]'
   fakeplayer.command.kill:
     description: 'Allow player to run /fp kill'
   fakeplayer.command.list:
-    description: 'Allow player to run /fp list'
+    description: 'Allow player to list their own fake players'
   fakeplayer.command.select:
     description: 'Allow player to run /fp select'
   fakeplayer.command.selection:
@@ -32,12 +32,10 @@ permissions:
     description: 'Allow player to run /fp drop'
   fakeplayer.command.dropstack:
     description: 'Allow player to run /fp dropstack'
-  fakeplayer.command.dropinv:
-    description: 'Allow player to run /fp dropinv'
   fakeplayer.command.skin:
     description: 'Allow player to run /fp skin'
-  fakeplayer.command.invsee:
-    description: 'Allow player to run /fp invsee'
+  fakeplayer.command.hold:
+    description: 'Allow player to run /fp hold'
   fakeplayer.command.status:
     description: 'Allow player to run /fp status'
   fakeplayer.command.respawn:
@@ -56,42 +54,16 @@ permissions:
     description: 'Allow player to run /fp set'
   fakeplayer.command.attack:
     description: 'Allow player to run /fp attack'
-  fakeplayer.command.mine:
-    description: 'Allow player to run /fp mine'
-  fakeplayer.command.use:
-    description: 'Allow player to run /fp use'
-  fakeplayer.command.jump:
-    description: 'Allow player to run /fp jump'
-  fakeplayer.command.sneak:
-    description: 'Allow player to run /fp sneak'
-  fakeplayer.command.sprint:
-    description: 'Allow player to run /fp sprint'
   fakeplayer.command.look:
     description: 'Allow player to run /fp look'
   fakeplayer.command.turn:
     description: 'Allow player to run /fp turn'
   fakeplayer.command.move:
     description: 'Allow player to run /fp move'
-  fakeplayer.command.ride:
-    description: 'Allow player to run /fp ride'
   fakeplayer.command.swap:
     description: 'Allow player to run /fp swap'
-  fakeplayer.command.sleep:
-    description: 'Allow player to run /fp sleep'
   fakeplayer.command.stop:
     description: 'Allow player to run /fp stop'
-  fakeplayer.command.wakeup:
-    description: 'Allow player to run /fp wakeup'
-  fakeplayer.command.hold:
-    description: 'Allow player to run /fp hold'
-  fakeplayer.command.cmd:
-    description: 'Allow player to run /fp cmd'
-  fakeplayer.config.replenish:
-    description: 'Allow player to configure fake players can replenish'
-  fakeplayer.config.replenish.chest:
-    description: 'Allow player to configure fake players can replenish from nearby chest'
-  fakeplayer.config.autofish:
-    description: 'Allow player to configure fake players to auto-fishing'
 
   fakeplayer.spawn:
     description: 'Includes all basic permissions'
@@ -104,13 +76,13 @@ permissions:
       - fakeplayer.command.selection
       - fakeplayer.command.drop
       - fakeplayer.command.dropstack
-      - fakeplayer.command.dropinv
       - fakeplayer.command.skin
-      - fakeplayer.command.invsee
+      - fakeplayer.command.hold
       - fakeplayer.command.status
       - fakeplayer.command.respawn
       - fakeplayer.command.config
       - fakeplayer.command.set
+      - fakeplayer.command.swap
 
   fakeplayer.tp:
     description: 'Includes all permissions about teleport'
@@ -125,26 +97,14 @@ permissions:
       - fakeplayer.command.expme
 
   fakeplayer.action:
-    description: 'Includes all permissions about controlling action'
+    description: 'Includes all permissions about controlling actions'
     children:
       - fakeplayer.command.attack
-      - fakeplayer.command.mine
-      - fakeplayer.command.use
-      - fakeplayer.command.jump
-      - fakeplayer.command.sneak
-      - fakeplayer.command.sprint
       - fakeplayer.command.look
       - fakeplayer.command.turn
       - fakeplayer.command.move
-      - fakeplayer.command.ride
       - fakeplayer.command.swap
-      - fakeplayer.command.sleep
-      - fakeplayer.command.wakeup
-      - fakeplayer.command.hold
       - fakeplayer.command.stop
-      - fakeplayer.config.replenish
-      - fakeplayer.config.replenish.chest
-      - fakeplayer.config.autofish
 
   fakeplayer.*:
     description: 'Includes all permissions'
@@ -153,4 +113,3 @@ permissions:
       - fakeplayer.tp
       - fakeplayer.exp
       - fakeplayer.action
-      - fakeplayer.cmd

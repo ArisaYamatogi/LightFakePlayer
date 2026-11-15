@@ -7,14 +7,9 @@ import org.jetbrains.annotations.Nullable;
 
 public interface MetadataKeys {
 
-
     String SELECTION = "fakeplayer:selection";
 
-    String REPLENISH = "fakeplayer:replenish";
-
     String SPAWNED_AT = "fakeplayer:spawned_at";
-
-    String AUTOFISH = "fakeplayer:autofish";
 
     static @Nullable Integer getSpawnedAt(@NotNull Player player) {
         var value = Iterables.getFirst(player.getMetadata(SPAWNED_AT), null);

@@ -7,17 +7,14 @@ import io.github.hello09x.devtools.core.TranslationModule;
 import io.github.hello09x.devtools.core.translation.TranslationConfig;
 import io.github.hello09x.devtools.core.translation.TranslatorUtils;
 import io.github.hello09x.devtools.core.utils.Exceptions;
-import io.github.hello09x.devtools.database.DatabaseModule;
 import io.github.hello09x.fakeplayer.core.command.CommandRegistry;
 import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
+import io.github.hello09x.fakeplayer.core.listener.FakeplayerInventoryListener;
 import io.github.hello09x.fakeplayer.core.listener.FakeplayerLifecycleListener;
 import io.github.hello09x.fakeplayer.core.listener.FakeplayerListener;
-import io.github.hello09x.fakeplayer.core.listener.PlayerListener;
-import io.github.hello09x.fakeplayer.core.manager.FakeplayerAutofishManager;
-import io.github.hello09x.fakeplayer.core.manager.FakeplayerReplenishManager;
+import io.github.hello09x.fakeplayer.core.manager.FakeplayerChargeManager;
 import io.github.hello09x.fakeplayer.core.manager.WildFakeplayerManager;
-import io.github.hello09x.fakeplayer.core.manager.invsee.InvseeManager;
-import io.github.hello09x.fakeplayer.core.placeholder.FakeplayerPlaceholderExpansion;
+import io.github.hello09x.fakeplayer.core.repository.FakeplayerOwnershipRepository;
 import io.github.hello09x.fakeplayer.core.util.update.UpdateChecker;
 import lombok.Getter;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -45,12 +42,12 @@ public final class Main extends JavaPlugin {
         injector = Guice.createInjector(
                 new FakeplayerModule(),
                 new CommandModule(),
-                new DatabaseModule(),
                 new TranslationModule(new TranslationConfig(
                         "message/message",
                         TranslatorUtils.getDefaultLocale(Main.getInstance())))
         );
 
+        injector.getInstance(FakeplayerOwnershipRepository.class).resetActive();
         injector.getInstance(CommandRegistry.class).register();
         {
             var messenger = getServer().getMessenger();
@@ -60,23 +57,12 @@ public final class Main extends JavaPlugin {
 
         {
             var manager = getServer().getPluginManager();
-            manager.registerEvents(injector.getInstance(PlayerListener.class), this);
+            manager.registerEvents(injector.getInstance(FakeplayerInventoryListener.class), this);
             manager.registerEvents(injector.getInstance(FakeplayerLifecycleListener.class), this);
             manager.registerEvents(injector.getInstance(FakeplayerListener.class), this);
-            manager.registerEvents(injector.getInstance(FakeplayerAutofishManager.class), this);
-            manager.registerEvents(injector.getInstance(FakeplayerReplenishManager.class), this);
-            manager.registerEvents(injector.getInstance(InvseeManager.class), this);
         }
 
-        {
-            var placeholderExpansion = injector.getInstance(FakeplayerPlaceholderExpansion.class);
-            if (placeholderExpansion != null) {
-                if (placeholderExpansion.register()) {
-                    getServer().getPluginManager().registerEvents(placeholderExpansion, this);
-                    getLogger().info("Successfully registered PlaceholderExpansion");
-                }
-            }
-        }
+        injector.getInstance(FakeplayerChargeManager.class);
 
         if (injector.getInstance(FakeplayerConfig.class).isCheckForUpdates()) {
             checkForUpdatesAsync();
@@ -122,6 +108,10 @@ public final class Main extends JavaPlugin {
                 messenger.unregisterIncomingPluginChannel(this);
                 messenger.unregisterOutgoingPluginChannel(this);
             });
+        }
+
+        if (injector != null) {
+            Exceptions.suppress(this, () -> injector.getInstance(FakeplayerChargeManager.class).onDisable());
         }
     }
 

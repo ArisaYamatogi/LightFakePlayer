@@ -47,9 +47,9 @@ public class SpawnCommand extends AbstractCommand {
      */
     @HandleCommandException
     public void spawn(@NotNull CommandSender sender, @NotNull CommandArguments args) {
-        var name = (String) args.get("name");
-        if (name != null && name.isEmpty()) {
-            name = null;
+        var id = (String) args.get("id");
+        if (id == null) {
+            return;
         }
         var world = (World) args.get("world");
         var location = (Location) args.get("location");
@@ -69,7 +69,7 @@ public class SpawnCommand extends AbstractCommand {
         }
 
         var removedAt = Optional.ofNullable(config.getLifespan()).map(lifespan -> LocalDateTime.now().plus(lifespan)).orElse(null);
-        manager.spawnAsync(sender, name, spawnpoint, Optional.ofNullable(config.getLifespan()).map(Duration::toMillis).orElse(FakeplayerTicker.NON_REMOVE_AT))
+        manager.spawnAsync(sender, id, spawnpoint, Optional.ofNullable(config.getLifespan()).map(Duration::toMillis).orElse(FakeplayerTicker.NON_REMOVE_AT))
                .thenAcceptAsync(player -> {
                    if (player == null) {
                        return;

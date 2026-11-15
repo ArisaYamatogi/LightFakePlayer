@@ -56,6 +56,10 @@ public class FakeplayerTicker extends BukkitRunnable {
         } else {
             this.doTick();
         }
+
+        if (this.player.getTickCount() % 20 == 0) {
+            this.player.clearStorage();
+        }
     }
 
     /**

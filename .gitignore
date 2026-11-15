@@ -1,5 +1,6 @@
 ### Maven template
 target/
+.build-cache/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
@@ -130,3 +131,4 @@ server/
 buildtool/
 
 .flattened-pom.xml
+.test-server/

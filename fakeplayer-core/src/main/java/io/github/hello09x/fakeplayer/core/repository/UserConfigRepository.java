@@ -2,10 +2,9 @@ package io.github.hello09x.fakeplayer.core.repository;
 
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import io.github.hello09x.devtools.database.jdbc.JdbcTemplate;
 import io.github.hello09x.fakeplayer.core.repository.model.Feature;
 import io.github.hello09x.fakeplayer.core.repository.model.UserConfig;
-import io.github.hello09x.fakeplayer.core.repository.model.UserConfigRowMapper;
+import io.github.hello09x.fakeplayer.core.storage.PluginDataStore;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,53 +14,32 @@ import java.util.UUID;
 @Singleton
 public class UserConfigRepository {
 
-    private final JdbcTemplate jdbc;
+    private final PluginDataStore store;
 
     @Inject
-    public UserConfigRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-        this.initTables();
+    public UserConfigRepository(PluginDataStore store) {
+        this.store = store;
     }
 
     public @Nullable UserConfig selectByPlayerIdAndKey(@NotNull UUID playerId, @NotNull Feature feature) {
-        var sql = "select * from user_config where player_id = ? and `key` = ?";
-        return jdbc.queryForObject(sql, UserConfigRowMapper.instance, playerId.toString(), feature.name());
+        var value = this.store.getFeature(playerId, feature);
+        if (value == null) {
+            return null;
+        }
+        return new UserConfig(null, playerId, feature, value);
     }
 
     public int saveOrUpdate(@NotNull UserConfig config) {
-        var sql = """
-                  insert or replace into user_config(
-                      id, player_id, `key`, `value`
-                  ) values (
-                      (select id from user_config where player_id = ? and `key` = ?),
-                      ?,
-                      ?,
-                      ?
-                    )
-                  """;
-
-        return jdbc.update(sql, config.playerId().toString(), config.key().name(), config.playerId(), config.key().name(), config.value());
+        this.store.setFeature(config.playerId(), config.key(), config.value());
+        return 1;
     }
 
     public @NotNull List<UserConfig> selectByPlayerId(@NotNull UUID playerId) {
-        var sql = "select * from user_config where player_id = ?";
-        return jdbc.query(sql, UserConfigRowMapper.instance, playerId.toString());
+        return this.store.getFeatures(playerId)
+                        .entrySet()
+                        .stream()
+                        .map(entry -> new UserConfig(null, playerId, entry.getKey(), entry.getValue()))
+                        .toList();
     }
 
-    protected void initTables() {
-        jdbc.execute("""
-                             create table if not exists user_config
-                                 (
-                                     id        integer  not null primary key autoincrement,
-                                     player_id text(36) not null,
-                                     `key`       text     not null,
-                                     `value`     text     not null
-                                 );
-                             """);
-
-        jdbc.execute("""
-                             create unique index if not exists table_name_player_id_key_uindex
-                                        on user_config (player_id, `key`);
-                             """);
-    }
 }

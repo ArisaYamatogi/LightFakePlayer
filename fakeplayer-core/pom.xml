@@ -47,11 +47,6 @@
         </dependency>
 
         <dependency>
-            <groupId>com.github.tanyaofei.devtools</groupId>
-            <artifactId>devtools-database</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>com.mojang</groupId>
             <artifactId>authlib</artifactId>
             <scope>provided</scope>
@@ -75,22 +70,6 @@
             <artifactId>netty-transport</artifactId>
             <version>4.1.82.Final</version>
             <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>OpenInv</groupId>
-            <artifactId>OpenInv</artifactId>
-            <version>SNAPSHOT</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../lib/OpenInv.jar</systemPath>
-        </dependency>
-
-        <dependency>
-            <groupId>PlaceholderAPI</groupId>
-            <artifactId>PlaceholderAPI</artifactId>
-            <version>SNAPSHOT</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../lib/PlaceholderAPI-2.11.6.jar</systemPath>
         </dependency>
 
     </dependencies>

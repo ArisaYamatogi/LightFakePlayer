@@ -5,9 +5,6 @@ import com.google.inject.Singleton;
 import io.github.hello09x.devtools.command.exception.CommandException;
 import io.github.hello09x.devtools.core.utils.Exceptions;
 import io.github.hello09x.devtools.core.utils.MetadataUtils;
-import io.github.hello09x.fakeplayer.api.spi.ActionSetting;
-import io.github.hello09x.fakeplayer.api.spi.ActionType;
-import io.github.hello09x.fakeplayer.api.spi.NMSBridge;
 import io.github.hello09x.fakeplayer.core.Main;
 import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
 import io.github.hello09x.fakeplayer.core.constant.MetadataKeys;
@@ -15,7 +12,9 @@ import io.github.hello09x.fakeplayer.core.entity.Fakeplayer;
 import io.github.hello09x.fakeplayer.core.entity.SpawnOption;
 import io.github.hello09x.fakeplayer.core.manager.feature.FakeplayerFeatureManager;
 import io.github.hello09x.fakeplayer.core.manager.naming.NameManager;
+import io.github.hello09x.fakeplayer.core.repository.FakeplayerOwnershipRepository;
 import io.github.hello09x.fakeplayer.core.repository.model.Feature;
+import io.github.hello09x.fakeplayer.core.storage.SecretStore;
 import io.github.hello09x.fakeplayer.core.util.AddressUtils;
 import io.github.hello09x.fakeplayer.core.util.Commands;
 import net.kyori.adventure.text.Component;
@@ -28,11 +27,9 @@ import org.bukkit.metadata.MetadataValue;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -53,16 +50,25 @@ public class FakeplayerManager {
     private final NameManager nameManager;
     private final FakeplayerList playerList;
     private final FakeplayerFeatureManager featureManager;
-    private final NMSBridge nms;
+    private final FakeplayerOwnershipRepository ownershipRepository;
+    private final SecretStore secretStore;
     private final FakeplayerConfig config;
     private final ScheduledExecutorService lagMonitor;
 
     @Inject
-    public FakeplayerManager(NameManager nameManager, FakeplayerList playerList, FakeplayerFeatureManager featureManager, NMSBridge nms, FakeplayerConfig config) {
+    public FakeplayerManager(
+            NameManager nameManager,
+            FakeplayerList playerList,
+            FakeplayerFeatureManager featureManager,
+            FakeplayerOwnershipRepository ownershipRepository,
+            SecretStore secretStore,
+            FakeplayerConfig config
+    ) {
         this.nameManager = nameManager;
         this.playerList = playerList;
         this.featureManager = featureManager;
-        this.nms = nms;
+        this.ownershipRepository = ownershipRepository;
+        this.secretStore = secretStore;
         this.config = config;
 
         this.lagMonitor = Executors.newSingleThreadScheduledExecutor();
@@ -81,30 +87,75 @@ public class FakeplayerManager {
     /**
      * 创建一个假人
      *
-     * @param creator 创建者
-     * @param spawnAt 生成地点
+     * @param creator  创建者
+     * @param id       自定义 ID
+     * @param spawnAt  生成地点
+     * @param lifespan 存活时间
      */
     public @NotNull CompletableFuture<Player> spawnAsync(
             @NotNull CommandSender creator,
-            @Nullable String name,
+            @NotNull String id,
             @NotNull Location spawnAt,
             long lifespan
     ) {
         this.checkLimit(creator);
 
-        var sn = name == null ? nameManager.getRegularName(creator) : nameManager.getSpecifiedName(name);
+        var validatedId = this.nameManager.validateFormat(id);
+        return this.nameManager.checkLuckPerms(validatedId).thenCompose(ignored -> {
+            var result = new CompletableFuture<Player>();
+            Runnable spawn = () -> {
+                try {
+                    this.spawnOnMainThread(creator, validatedId, spawnAt, lifespan)
+                        .whenComplete((player, throwable) -> {
+                            if (throwable != null) {
+                                result.completeExceptionally(throwable);
+                            } else {
+                                result.complete(player);
+                            }
+                        });
+                } catch (Throwable e) {
+                    result.completeExceptionally(e);
+                }
+            };
+            if (Bukkit.isPrimaryThread()) {
+                spawn.run();
+            } else {
+                Bukkit.getScheduler().runTask(Main.getInstance(), spawn);
+            }
+            return result;
+        });
+    }
+
+    private @NotNull CompletableFuture<Player> spawnOnMainThread(
+            @NotNull CommandSender creator,
+            @NotNull String id,
+            @NotNull Location spawnAt,
+            long lifespan
+    ) {
+        // LuckPerms 查询是异步的, 期间限制可能已被其他请求占满
+        this.checkLimit(creator);
+
+        var sn = nameManager.getSpecifiedName(creator, id);
+        var ownerId = NameManager.getCreatorId(creator);
         log.info("UUID of fake player %s is %s".formatted(sn.name(), sn.uuid()));
 
-        var fp = new Fakeplayer(
-                creator,
-                AddressUtils.getAddress(creator),
-                sn,
-                lifespan
-        );
+        this.ownershipRepository.reserve(ownerId, creator.getName(), sn.name(), sn.uuid());
 
-        var target = fp.getPlayer();    // 即使出现异常也不需要处理这个玩家, 最终会被 GC 掉
-        this.playerList.add(fp);
+        final Fakeplayer fp;
+        try {
+            fp = new Fakeplayer(
+                    creator,
+                    AddressUtils.getAddress(creator),
+                    sn,
+                    lifespan
+            );
+            this.playerList.add(fp);
+        } catch (RuntimeException e) {
+            this.ownershipRepository.release(ownerId, sn.name());
+            throw e;
+        }
 
+        var target = fp.getPlayer();
         this.dispatchCommandsEarly(fp, this.config.getPreSpawnCommands());
         return CompletableFuture
                 .supplyAsync(() -> {
@@ -114,15 +165,29 @@ public class FakeplayerManager {
                             configs.get(Feature.invulnerable).asBoolean(),
                             configs.get(Feature.collidable).asBoolean(),
                             configs.get(Feature.look_at_entity).asBoolean(),
-                            configs.get(Feature.pickup_items).asBoolean(),
-                            configs.get(Feature.skin).asBoolean(),
-                            configs.get(Feature.replenish).asBoolean(),
-                            configs.get(Feature.autofish).asBoolean(),
-                            configs.get(Feature.wolverine).asBoolean()
+                            configs.get(Feature.skin).asBoolean()
                     );
                 })
                 .thenComposeAsync(fp::spawnAsync)
-                .thenApply(ignored -> target);
+                .handle((ignored, throwable) -> {
+                    if (throwable != null) {
+                        if (Bukkit.isPrimaryThread()) {
+                            this.discardFailedSpawn(fp);
+                        } else {
+                            Bukkit.getScheduler().runTask(Main.getInstance(), () -> this.discardFailedSpawn(fp));
+                        }
+                        throw new CompletionException(throwable);
+                    }
+                    return target;
+                });
+    }
+
+    private void discardFailedSpawn(@NotNull Fakeplayer fakeplayer) {
+        if (fakeplayer.isOnline()) {
+            fakeplayer.getPlayer().kick(text(REMOVAL_REASON_PREFIX + "spawn failed"));
+        }
+        this.playerList.remove(fakeplayer);
+        this.ownershipRepository.release(fakeplayer.getCreatorId(), fakeplayer.getName());
     }
 
     /**
@@ -155,9 +220,6 @@ public class FakeplayerManager {
 
     /**
      * 获取一个假人的创建者, 如果这个玩家不是假人, 则为 {@code null}
-     *
-     * @param target 假人
-     * @return 假人的创建者
      */
     public @Nullable String getCreatorName(@NotNull Player target) {
         return Optional
@@ -169,9 +231,6 @@ public class FakeplayerManager {
 
     /**
      * 获取假人的创建者
-     *
-     * @param target 假人
-     * @return 创建者
      */
     public @Nullable CommandSender getCreator(@NotNull Player target) {
         return Optional.ofNullable(this.playerList.getByUUID(target.getUniqueId()))
@@ -179,31 +238,28 @@ public class FakeplayerManager {
                        .map(creator -> {
                            if (creator instanceof Player p) {
                                return Bukkit.getPlayer(p.getUniqueId());
-                           } else {
-                               return creator;
                            }
+                           return creator;
                        })
                        .orElse(null);
     }
 
     /**
+     * 获取假人的创建者的 UUID
+     */
+    public @Nullable UUID getCreatorId(@NotNull Player target) {
+        return Optional.ofNullable(this.playerList.getByUUID(target.getUniqueId()))
+                       .map(Fakeplayer::getCreatorId)
+                       .orElse(null);
+    }
+
+    /**
      * 根据名称删除假人
-     *
-     * @param name   名称
-     * @param reason 原因
-     * @return 是否删除成功
      */
     public boolean remove(@NotNull String name, @Nullable String reason) {
         return this.remove(name, reason == null ? null : text(reason));
     }
 
-    /**
-     * 根据名称删除假人
-     *
-     * @param name   名称
-     * @param reason 原因
-     * @return 是否移除成功
-     */
     public boolean remove(@NotNull String name, @Nullable Component reason) {
         var target = this.get(name);
         if (target == null) {
@@ -219,75 +275,62 @@ public class FakeplayerManager {
 
     /**
      * 移除所有假人
-     *
-     * @return 移除的假人数量
      */
     public int removeAll(@Nullable String reason) {
-        var targets = getAll();
+        var targets = this.playerList.getAll();
         for (var target : targets) {
-            target.kick(text(REMOVAL_REASON_PREFIX + (reason == null ? "removed" : reason)));
+            if (target.isOnline()) {
+                target.getPlayer().kick(text(REMOVAL_REASON_PREFIX + (reason == null ? "removed" : reason)));
+            } else {
+                this.playerList.remove(target);
+                this.ownershipRepository.release(target.getCreatorId(), target.getName());
+            }
         }
         return targets.size();
     }
 
-    /**
-     * @return 获取所有假人
-     */
     public @NotNull List<Player> getAll() {
         return this.getAll((Predicate<Player>) null);
     }
 
-    /**
-     * @param predicate 筛选条件
-     * @return 经过筛选的假人
-     */
     public @NotNull List<Player> getAll(@Nullable Predicate<Player> predicate) {
-        var stream = this.playerList.getAll().stream().map(Fakeplayer::getPlayer);
+        var stream = this.playerList
+                .getAll()
+                .stream()
+                .map(Fakeplayer::getPlayer)
+                .filter(Player::isOnline);
         if (predicate != null) {
             stream = stream.filter(predicate);
         }
         return stream.toList();
     }
 
+    public @NotNull List<Fakeplayer> getAllFakeplayers() {
+        return this.playerList.getAll();
+    }
+
     /**
      * 清理假人
-     *
-     * @param target 假人
      */
     public void cleanup(@NotNull Player target) {
         var fakeplayer = this.playerList.removeByUUID(target.getUniqueId());
         if (fakeplayer == null) {
             return;
         }
-        this.nameManager.unregister(fakeplayer.getSequenceName());
-        if (config.isDropInventoryOnQuiting()) {
-            this.nms.createAction(
-                    fakeplayer.getPlayer(),
-                    ActionType.DROP_INVENTORY,
-                    ActionSetting.once()
-            ).tick();
-        }
+        this.ownershipRepository.release(fakeplayer.getCreatorId(), fakeplayer.getName());
     }
 
-    /**
-     * 获取创建者创建的所有假人
-     *
-     * @param creator 创建者
-     * @return 创建者创建的假人
-     */
     public @NotNull List<Player> getAll(@NotNull CommandSender creator) {
         return this.getAll(creator, null);
     }
 
-    /**
-     * 获取筛选过的创建者创建的假人
-     *
-     * @param creator   创建者
-     * @param predicate 筛选条件
-     * @return 假人
-     */
     public @NotNull List<Player> getAll(@NotNull CommandSender creator, @Nullable Predicate<Player> predicate) {
-        var stream = this.playerList.getByCreator(creator.getName()).stream().map(Fakeplayer::getPlayer);
+        var ownerId = NameManager.getCreatorId(creator);
+        var stream = this.playerList
+                .getByCreator(ownerId)
+                .stream()
+                .map(Fakeplayer::getPlayer)
+                .filter(Player::isOnline);
         if (predicate != null) {
             stream = stream.filter(predicate);
         }
@@ -300,29 +343,17 @@ public class FakeplayerManager {
 
     /**
      * 判断一名玩家是否是假人
-     *
-     * @param target 玩家
-     * @return 是否是假人
      */
     public boolean isFake(@NotNull Player target) {
         return this.playerList.getByUUID(target.getUniqueId()) != null;
     }
 
-    /**
-     * 判断一名玩家不是假人
-     *
-     * @param target 玩家
-     * @return 是否不是假人
-     */
     public boolean isNotFake(@NotNull Player target) {
         return this.playerList.getByUUID(target.getUniqueId()) == null;
     }
 
     /**
      * 获取 IP 地址创建着多少个假人
-     *
-     * @param address IP 地址
-     * @return 该 IP 地址创建着多少个假人
      */
     public long countByAddress(@NotNull String address) {
         return this.playerList
@@ -333,20 +364,11 @@ public class FakeplayerManager {
 
     /**
      * 获取这个玩家创建了多少个假人
-     *
-     * @param creator 玩家
-     * @return 创建了多少个假人
      */
     public int countByCreator(@NotNull CommandSender creator) {
-        return this.playerList.countByCreator(creator.getName());
+        return this.playerList.countByCreator(NameManager.getCreatorId(creator));
     }
 
-    /**
-     * 设置玩家当前选择的假人
-     *
-     * @param creator 玩家
-     * @param target  假人
-     */
     public void setSelection(@NotNull Player creator, @Nullable Player target) {
         if (target == null) {
             creator.removeMetadata(MetadataKeys.SELECTION, Main.getInstance());
@@ -360,12 +382,6 @@ public class FakeplayerManager {
         creator.setMetadata(MetadataKeys.SELECTION, new FixedMetadataValue(Main.getInstance(), target.getUniqueId()));
     }
 
-    /**
-     * 获取当前选中的假人
-     *
-     * @param creator 创建者
-     * @return 选中的假人
-     */
     public @Nullable Player getSelection(@NotNull CommandSender creator) {
         if (!(creator instanceof Player p)) {
             return null;
@@ -393,26 +409,29 @@ public class FakeplayerManager {
 
     /**
      * 以假人身份执行命令
-     *
-     * @param target   假人
-     * @param commands 命令
      */
     public void issueCommands(@NotNull Player target, @NotNull List<String> commands) {
-        if (commands.isEmpty()) {
-            return;
-        }
-        if (this.isNotFake(target)) {
+        if (commands.isEmpty() || this.isNotFake(target)) {
             return;
         }
 
-        var p = target.getName();
-        var u = target.getUniqueId().toString();
-        var c = Objects.requireNonNull(this.getCreatorName(target));
-        for (var cmd : Commands.formatCommands(commands, "%p", p, "%u", u, "%c", c)) {
-            if (!target.performCommand(cmd)) {
-                log.warning(target.getName() + " failed to execute command: " + cmd);
+        var fakeplayer = this.playerList.getByUUID(target.getUniqueId());
+        if (fakeplayer == null) {
+            return;
+        }
+
+        var placeholders = this.placeholders(
+                fakeplayer.getName(),
+                fakeplayer.getUUID(),
+                fakeplayer.getCreator().getName(),
+                fakeplayer.getCreatorId()
+        );
+
+        for (var command : Commands.formatCommands(commands, placeholders)) {
+            if (!target.performCommand(command)) {
+                log.warning(target.getName() + " failed to execute command: " + Commands.mask(command, secretStore.getAuthmePassword()));
             } else {
-                log.info(target.getName() + " issued command: " + cmd);
+                log.info(target.getName() + " issued command: " + Commands.mask(command, secretStore.getAuthmePassword()));
             }
         }
     }
@@ -422,50 +441,96 @@ public class FakeplayerManager {
             return;
         }
 
-        var server = Bukkit.getServer();
-        var sender = Bukkit.getConsoleSender();
-        var p = fp.getName();
-        var u = fp.getUUID().toString();
-        var c = fp.getCreator().getName();
-        for (var cmd : Commands.formatCommands(commands, "%p", p, "%u", u, "%c", c)) {
-            if (!server.dispatchCommand(sender, cmd)) {
-                log.warning("Failed to execute command for %s: ".formatted(p) + cmd);
+        var placeholders = this.placeholders(
+                fp.getName(),
+                fp.getUUID(),
+                fp.getCreator().getName(),
+                fp.getCreatorId()
+        );
+        for (var command : Commands.formatCommands(commands, placeholders)) {
+            if (!Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), command)) {
+                log.warning("Failed to execute command for %s: %s".formatted(
+                        fp.getName(),
+                        Commands.mask(command, secretStore.getAuthmePassword())
+                ));
             } else {
-                log.info("Dispatched command: " + cmd);
+                log.info("Dispatched command: " + Commands.mask(command, secretStore.getAuthmePassword()));
             }
         }
     }
 
     /**
      * 以控制台身份对玩家执行命令
-     *
-     * @param player   假人
-     * @param commands 命令
      */
     public void dispatchCommands(@NotNull Player player, @NotNull List<String> commands) {
         if (commands.isEmpty()) {
             return;
         }
 
-        var server = Bukkit.getServer();
-        var sender = Bukkit.getConsoleSender();
+        var fakeplayer = this.playerList.getByUUID(player.getUniqueId());
+        if (fakeplayer == null) {
+            return;
+        }
 
-        var p = player.getName();
-        var u = player.getUniqueId().toString();
-        var c = Objects.requireNonNull(this.getCreatorName(player));
-        for (var cmd : Commands.formatCommands(commands, "%p", p, "%u", u, "%c", c)) {
-            if (!server.dispatchCommand(sender, cmd)) {
-                log.warning("Failed to execute command for %s: ".formatted(p) + cmd);
+        this.dispatchCommands(
+                player,
+                commands,
+                fakeplayer.getCreator().getName(),
+                fakeplayer.getCreatorId()
+        );
+    }
+
+    /**
+     * 以控制台身份对玩家执行命令
+     * <p>用于假人已经从列表移除之后仍需执行的延迟命令</p>
+     */
+    public void dispatchCommands(
+            @NotNull Player player,
+            @NotNull List<String> commands,
+            @NotNull String creatorName,
+            @NotNull UUID creatorId
+    ) {
+        if (commands.isEmpty()) {
+            return;
+        }
+
+        var placeholders = this.placeholders(
+                player.getName(),
+                player.getUniqueId(),
+                creatorName,
+                creatorId
+        );
+        for (var command : Commands.formatCommands(commands, placeholders)) {
+            if (!Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), command)) {
+                log.warning("Failed to execute command for %s: %s".formatted(
+                        player.getName(),
+                        Commands.mask(command, secretStore.getAuthmePassword())
+                ));
             } else {
-                log.info("Dispatched command: " + cmd);
+                log.info("Dispatched command: " + Commands.mask(command, secretStore.getAuthmePassword()));
             }
         }
     }
 
+    private @NotNull Map<String, String> placeholders(
+            @NotNull String fakeplayerName,
+            @NotNull UUID fakeplayerId,
+            @NotNull String creatorName,
+            @NotNull UUID creatorId
+    ) {
+        var placeholders = new HashMap<String, String>(8);
+        placeholders.put("%p", fakeplayerName);
+        placeholders.put("%u", fakeplayerId.toString());
+        placeholders.put("%c", creatorName);
+        placeholders.put("%id%", fakeplayerName);
+        placeholders.put("%owner%", creatorName);
+        placeholders.put("%owner_uuid%", creatorId.toString());
+        placeholders.put("%password%", secretStore.getAuthmePassword());
+        return placeholders;
+    }
+
     /**
      * 检测限制, 不满足条件则抛出异常
-     *
-     * @param creator 创建者
      */
     private void checkLimit(@NotNull CommandSender creator) throws CommandException {
         if (creator.isOp()) {
@@ -476,7 +541,7 @@ public class FakeplayerManager {
             throw new CommandException(translatable("fakeplayer.command.spawn.error.server-limit"));
         }
 
-        if (this.playerList.getByCreator(creator.getName()).size() >= this.config.getPlayerLimit()) {
+        if (this.countByCreator(creator) >= this.config.getPlayerLimit()) {
             throw new CommandException(translatable("fakeplayer.command.spawn.error.player-limit"));
         }
 
@@ -487,6 +552,7 @@ public class FakeplayerManager {
 
     public void onDisable() {
         Exceptions.suppress(Main.getInstance(), () -> this.removeAll("Plugin disabled"));
+        Exceptions.suppress(Main.getInstance(), this.ownershipRepository::resetActive);
         Exceptions.suppress(Main.getInstance(), this.lagMonitor::shutdownNow);
     }
 

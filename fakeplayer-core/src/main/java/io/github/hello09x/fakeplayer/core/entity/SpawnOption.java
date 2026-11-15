@@ -8,8 +8,7 @@ import org.jetbrains.annotations.NotNull;
  * @param invulnerable 是否无敌
  * @param collidable   是否开启碰撞
  * @param lookAtEntity 是否看向附近实体
- * @param pickupItems  是否拾取物品
- * @param replenish    自动补货
+ * @param skin         是否使用皮肤
  */
 public record SpawnOption(
 
@@ -22,15 +21,7 @@ public record SpawnOption(
 
         boolean lookAtEntity,
 
-        boolean pickupItems,
-
-        boolean skin,
-
-        boolean replenish,
-
-        boolean autofish,
-
-        boolean wolverine
+        boolean skin
 
 ) {
 }

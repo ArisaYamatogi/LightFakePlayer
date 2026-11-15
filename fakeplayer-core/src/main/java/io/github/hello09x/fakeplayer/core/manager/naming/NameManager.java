@@ -3,244 +3,195 @@ package io.github.hello09x.fakeplayer.core.manager.naming;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.github.hello09x.fakeplayer.core.Main;
-import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
 import io.github.hello09x.fakeplayer.core.manager.naming.exception.IllegalCustomNameException;
+import io.github.hello09x.fakeplayer.core.repository.FakeplayerOwnershipRepository;
 import io.github.hello09x.fakeplayer.core.repository.FakeplayerProfileRepository;
-import io.github.hello09x.fakeplayer.core.repository.UsedIdRepository;
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import static net.kyori.adventure.text.Component.text;
 import static net.kyori.adventure.text.Component.translatable;
-import static net.kyori.adventure.text.format.NamedTextColor.*;
+import static net.kyori.adventure.text.format.NamedTextColor.GOLD;
+import static net.kyori.adventure.text.format.NamedTextColor.RED;
 
 @Singleton
 public class NameManager {
 
     private final static Logger log = Main.getInstance().getLogger();
-    private final static int MAX_LENGTH = 16;   // mojang required
-    private final static int MIN_LENGTH = 3; // mojang required
 
-    private final UsedIdRepository legacyUsedIdRepository;
+    public final static Pattern ID_PATTERN = Pattern.compile("^[a-zA-Z0-9_]+$");
+
+    public final static int MAX_LENGTH = 16;
+
     private final FakeplayerProfileRepository profileRepository;
-    private final FakeplayerConfig config;
-    private final Map<String, NameSource> nameSources = new HashMap<>();
 
-    private final String serverId;
+    private final FakeplayerOwnershipRepository ownershipRepository;
 
     @Inject
-    public NameManager(UsedIdRepository legacyUsedIdRepository, FakeplayerProfileRepository profileRepository, FakeplayerConfig config) {
-        this.legacyUsedIdRepository = legacyUsedIdRepository;
+    public NameManager(
+            FakeplayerProfileRepository profileRepository,
+            FakeplayerOwnershipRepository ownershipRepository
+    ) {
         this.profileRepository = profileRepository;
-        this.config = config;
-
-        var file = new File(Main.getInstance().getDataFolder(), "serverid");
-        serverId = Optional.ofNullable(loadServerId(file)).orElseGet(() -> {
-            var uuid = UUID.randomUUID().toString();
-            try (var out = new FileWriter(file, StandardCharsets.UTF_8)) {
-                IOUtils.write(uuid, out);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-            return uuid;
-        });
-    }
-
-    private static @Nullable String loadServerId(@NotNull File file) {
-        if (!file.exists()) {
-            return null;
-        }
-
-        String serverId;
-        try (var in = new FileReader(file, StandardCharsets.UTF_8)) {
-            serverId = IOUtils.toString(in);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        return serverId.isBlank() ? null : serverId;
+        this.ownershipRepository = ownershipRepository;
     }
 
     /**
-     * 通过名称生成 UUID
+     * 校验并生成一个指定名称的假人
      *
-     * @param name 名称
-     * @return UUID
+     * @param creator 创建者
+     * @param id      自定义 ID
+     * @return 序列名
      */
-    private @NotNull UUID getUUIDFromName(@NotNull String name) {
-        {
-            var uuid = profileRepository.selectUUIDByName(name);
-            if (uuid != null) {
-                return uuid;
-            }
+    public @NotNull SequenceName getSpecifiedName(@NotNull CommandSender creator, @NotNull String id) {
+        id = this.validateFormat(id);
+
+        this.checkOnlinePlayer(id);
+        this.checkOwnership(creator, id);
+        this.checkRealPlayer(id);
+
+        // 假人尚未完成异步上线时 Bukkit 看不到它, 因此还要检查归属记录
+        if (this.ownershipRepository.hasActive(id)) {
+            throw new IllegalCustomNameException(translatable("fakeplayer.spawn.error.name.online", text(id, GOLD)).color(RED));
         }
 
-        // 老数据迁移
-        {
-            var base = serverId + ":" + name;
-            var legacyUUID = UUID.nameUUIDFromBytes(base.getBytes(StandardCharsets.UTF_8));
-            if (legacyUsedIdRepository.contains(legacyUUID)) {
-                profileRepository.insert(name, legacyUUID);
-                legacyUsedIdRepository.remove(legacyUUID);
-                return legacyUUID;
-            }
+        return new SequenceName("custom", 0, this.getUUIDFromName(id), id);
+    }
+
+    public @NotNull String validateFormat(@NotNull String id) {
+        id = id.trim();
+
+        if (id.length() > MAX_LENGTH) {
+            throw new IllegalCustomNameException(translatable(
+                    "fakeplayer.spawn.error.name.too-long",
+                    text(MAX_LENGTH, RED)
+            ).color(RED));
         }
 
-        // 新逻辑
-        for (int i = 0; i < 10; i++) {
-            var uuid = UUID.randomUUID();
-            if (legacyUsedIdRepository.contains(uuid) || profileRepository.existsByUUID(uuid) || Bukkit.getOfflinePlayer(uuid).hasPlayedBefore()) {
+        if (!ID_PATTERN.matcher(id).matches()) {
+            throw new IllegalCustomNameException(translatable("fakeplayer.spawn.error.name.invalid", RED));
+        }
+        return id;
+    }
+
+    private void checkOnlinePlayer(@NotNull String id) {
+        for (var online : Bukkit.getOnlinePlayers()) {
+            if (!online.getName().equalsIgnoreCase(id)) {
                 continue;
             }
-            profileRepository.insert(name, uuid);
+            throw new IllegalCustomNameException(
+                    online.isDead()
+                            ? translatable("fakeplayer.spawn.error.name.online-dead", text(id, GOLD), text("/fp respawn", RED)).color(RED)
+                            : translatable("fakeplayer.spawn.error.name.online", text(id, GOLD)).color(RED)
+            );
+        }
+    }
+
+    private void checkOwnership(@NotNull CommandSender creator, @NotNull String id) {
+        var creatorId = getCreatorId(creator);
+        if (this.ownershipRepository.isReservedByOther(creatorId, id)) {
+            throw new IllegalCustomNameException(translatable(
+                    "fakeplayer.spawn.error.name.reserved",
+                    text(id, GOLD)
+            ).color(RED));
+        }
+    }
+
+    private void checkRealPlayer(@NotNull String id) {
+        var offline = Bukkit.getOfflinePlayer(id);
+        if (!offline.hasPlayedBefore()) {
+            return;
+        }
+
+        // 本插件为该名称生成过 UUID 时，只有 UUID 相同才视为假人自己的历史数据
+        var profileUuid = this.profileRepository.selectUUIDByName(id);
+        if (profileUuid != null && profileUuid.equals(offline.getUniqueId())) {
+            return;
+        }
+
+        throw new IllegalCustomNameException(translatable(
+                "fakeplayer.spawn.error.name.used",
+                text(id, GOLD),
+                text(offline.getUniqueId().toString(), GOLD)
+        ).color(RED));
+    }
+
+    /**
+     * 通过 LuckPerms 检查名称是否属于真实玩家
+     * <p>LuckPerms 中可能存在从未连接过本服务器的玩家, 单靠 Bukkit 离线缓存无法发现</p>
+     */
+    public @NotNull CompletableFuture<Void> checkLuckPerms(@NotNull String id) {
+        return this.lookupLuckPermsUuid(id).thenAccept(uuid -> {
+            if (uuid == null) {
+                return;
+            }
+            var profileUuid = this.profileRepository.selectUUIDByName(id);
+            if (profileUuid != null && profileUuid.equals(uuid)) {
+                return;
+            }
+            throw new CompletionException(new IllegalCustomNameException(translatable(
+                    "fakeplayer.spawn.error.name.used",
+                    text(id, GOLD),
+                    text(uuid.toString(), GOLD)
+            ).color(RED)));
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private @NotNull CompletableFuture<@Nullable UUID> lookupLuckPermsUuid(@NotNull String id) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        try {
+            var luckPermsClass = Class.forName("net.luckperms.api.LuckPerms");
+            var userManagerClass = Class.forName("net.luckperms.api.model.user.UserManager");
+            var providerClass = Class.forName("net.luckperms.api.LuckPermsProvider");
+            var luckPerms = providerClass.getMethod("get").invoke(null);
+            var userManager = luckPermsClass.getMethod("getUserManager").invoke(luckPerms);
+            var lookup = userManagerClass.getMethod("lookupUniqueId", String.class);
+            // LuckPerms 用户名以小写保存, 而命令参数可能是任意大小写
+            return ((CompletableFuture<UUID>) lookup.invoke(userManager, id.toLowerCase(Locale.ROOT))).exceptionally(e -> {
+                log.warning("Could not query LuckPerms for player name '%s': %s".formatted(id, e.getMessage()));
+                throw new CompletionException(e);
+            });
+        } catch (Throwable e) {
+            log.warning("Could not query LuckPerms for player name '%s': %s".formatted(id, e.getMessage()));
+            // 校验失败时不能放行, 否则可能在 LuckPerms 故障期间占用真实玩家名称
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private @NotNull UUID getUUIDFromName(@NotNull String name) {
+        var uuid = this.profileRepository.selectUUIDByName(name);
+        if (uuid != null) {
             return uuid;
+        }
+
+        for (int i = 0; i < 10; i++) {
+            var generated = UUID.randomUUID();
+            if (this.profileRepository.existsByUUID(generated) || Bukkit.getOfflinePlayer(generated).hasPlayedBefore()) {
+                continue;
+            }
+            this.profileRepository.insert(name, generated);
+            return generated;
         }
 
         throw new IllegalStateException("Failed to generate uuid for fake player '%s' after 10 attempts".formatted(name));
     }
 
-    /**
-     * 通过自定义名称获取序列名
-     *
-     * @param name 自定义名称
-     * @return 序列名
-     */
-    public @NotNull SequenceName getSpecifiedName(@NotNull String name) {
-        if (StringUtils.isNotBlank(config.getNamePrefix())) {
-            name = config.getNamePrefix().trim() + name;
-        }
-        if (name.startsWith("-")) {
-            throw new IllegalCustomNameException(translatable(
-                    "fakeplayer.spawn.error.name.start-with-illegal-character",
-                    text("-", WHITE)
-            ).color(RED));
-        }
-
-        if (name.length() > MAX_LENGTH) {
-            throw new IllegalCustomNameException(translatable(
-                    "fakeplayer.spawn.error.name.too-long",
-                    text(MAX_LENGTH, WHITE)
-            ).color(RED));
-        }
-
-        if (name.length() < MIN_LENGTH) {
-            throw new IllegalCustomNameException(translatable(
-                    "fakeplayer.spawn.error.name.too-short",
-                    text(MIN_LENGTH, WHITE)
-            ).color(RED));
-        }
-
-        if (!config.getNamePattern().asPredicate().test(name)) {
-            throw new IllegalCustomNameException(translatable("fakeplayer.spawn.error.name.invalid", RED));
-        }
-
-        {
-            var player = Bukkit.getPlayerExact(name);
-            if (player != null) {
-                throw new IllegalCustomNameException(
-                        player.isDead()
-                                ? translatable("fakeplayer.spawn.error.name.online-dead", text(name, GOLD), text("/fp respawn", DARK_GREEN)).color(RED)
-                                : translatable("fakeplayer.spawn.error.name.online", text(name, GOLD)).color(RED)
-                );
-            }
-        }
-
-        var player = Bukkit.getOfflinePlayer(name);
-        var uuid = player.getUniqueId();
-        if (player.hasPlayedBefore() && !legacyUsedIdRepository.contains(uuid) && !profileRepository.existsByUUID(uuid)) {
-            throw new IllegalCustomNameException(translatable(
-                    "fakeplayer.spawn.error.name.used",
-                    text(name, GOLD),
-                    text(uuid.toString(), GOLD)
-            ).color(RED));
-        }
-
-        return new SequenceName(
-                "custom",
-                0,
-                this.getUUIDFromName(name),
-                name
-        );
+    public static @NotNull UUID getCreatorId(@NotNull CommandSender creator) {
+        return creator instanceof Player player ? player.getUniqueId() : new UUID(0, 0);
     }
-
-    /**
-     * 获取一个序列名
-     *
-     * @param creator 创建者
-     * @return 序列名
-     */
-    public @NotNull SequenceName getRegularName(@NotNull CommandSender creator) {
-        var source = config.getNameTemplate();
-        if (source.isBlank()) {
-            source = creator.getName();
-        }
-        source = source.replace("%c", creator.getName());
-        if (StringUtils.isNotBlank(config.getNamePrefix())) {
-            source = config.getNamePrefix().trim() + source;
-        }
-
-        for (int i = 0; i < 10; i++) {
-            var seq = nameSources.computeIfAbsent(source, ignored -> new NameSource(config.getPlayerLimit())).pop();
-            var suffix = "_" + (seq + 1);
-
-            String name;
-            if (source.length() + suffix.length() > MAX_LENGTH) {
-                name = source.substring(0, (MAX_LENGTH - suffix.length())) + suffix;
-            } else {
-                name = source + suffix;
-            }
-
-            if (Bukkit.getPlayerExact(name) != null) {
-                continue;
-            }
-
-            return new SequenceName(source, seq, this.getUUIDFromName(name), name);
-        }
-
-        String name;
-        for (int i = 0; i < 10; i++) {
-            name = RandomStringUtils.randomAlphanumeric(MAX_LENGTH);
-            if (Bukkit.getPlayerExact(name) != null) {
-                continue;
-            }
-            log.warning("Failed to generate a regular name for fake player after 10 attempts, using a random name as fallback: " + name);
-            return new SequenceName("random", 0, this.getUUIDFromName(name), name);
-        }
-
-        throw new IllegalStateException("Failed to generate a name for fake player based on creator '%s'".formatted(creator.getName()));
-    }
-
-    /**
-     * 归还序列名
-     *
-     * @param group    分组
-     * @param sequence 序列
-     */
-    public void unregister(@NotNull String group, int sequence) {
-        Optional.ofNullable(nameSources.get(group)).ifPresent(ns -> ns.push(sequence));
-    }
-
-    /**
-     * 归还序列名
-     *
-     * @param sn 序列名
-     */
-    public void unregister(@NotNull SequenceName sn) {
-        this.unregister(sn.group(), sn.sequence());
-    }
-
 
 }

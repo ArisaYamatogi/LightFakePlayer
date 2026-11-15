@@ -9,14 +9,13 @@ import io.github.hello09x.fakeplayer.core.Main;
 import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
 import io.github.hello09x.fakeplayer.core.config.PreventKicking;
 import io.github.hello09x.fakeplayer.core.constant.MetadataKeys;
-import io.github.hello09x.fakeplayer.core.manager.FakeplayerAutofishManager;
-import io.github.hello09x.fakeplayer.core.manager.FakeplayerReplenishManager;
 import io.github.hello09x.fakeplayer.core.manager.FakeplayerSkinManager;
 import io.github.hello09x.fakeplayer.core.manager.action.ActionManager;
 import io.github.hello09x.fakeplayer.core.manager.naming.SequenceName;
 import io.github.hello09x.fakeplayer.core.util.Attributes;
 import io.github.hello09x.fakeplayer.core.util.InternalAddressGenerator;
 import lombok.Getter;
+import lombok.Setter;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -44,14 +43,16 @@ public class Fakeplayer {
     private final static FakeplayerConfig config = Main.getInjector().getInstance(FakeplayerConfig.class);
     private final static NMSBridge bridge = Main.getInjector().getInstance(NMSBridge.class);
     private final static FakeplayerSkinManager skinManager = Main.getInjector().getInstance(FakeplayerSkinManager.class);
-    private final static FakeplayerReplenishManager replenishManager = Main.getInjector().getInstance(FakeplayerReplenishManager.class);
-    private final static FakeplayerAutofishManager autofishManager = Main.getInjector().getInstance(FakeplayerAutofishManager.class);
     private final static ActionManager actionManager = Main.getInjector().getInstance(ActionManager.class);
 
 
     @NotNull
     @Getter
     private final CommandSender creator;
+
+    @NotNull
+    @Getter
+    private final UUID creatorId;
 
     @NotNull
     @Getter
@@ -83,6 +84,10 @@ public class Fakeplayer {
     @UnknownNullability
     private NMSNetwork network;
 
+    @Getter
+    @Setter
+    private long lastChargedAt;
+
     /**
      * @param creator      创建者
      * @param creatorIp    创建者 IP
@@ -99,6 +104,7 @@ public class Fakeplayer {
         this.uuid = sequenceName.uuid();
 
         this.creator = creator;
+        this.creatorId = creator instanceof Player player ? player.getUniqueId() : new UUID(0, 0);
         this.creatorIp = creatorIp;
         this.sequenceName = sequenceName;
         this.handle = bridge.fromServer(Bukkit.getServer()).newPlayer(uuid, name);
@@ -140,27 +146,14 @@ public class Fakeplayer {
                         }
                     }
 
-                    if (config.isDropInventoryOnQuiting()) {
-                        // 跨服背包同步插件可能导致假人既丢弃了一份到地上，在重新生成的时候又回来了
-                        // 因此在生成的时候清空一次背包
-                        // 但无法解决登陆后延迟同步背包的情况
-                        this.player.getInventory().clear();
-                    }
-
                     this.player.setInvulnerable(option.invulnerable());
                     this.player.setCollidable(option.collidable());
-                    this.player.setCanPickupItems(option.pickupItems());
+                    this.player.setCanPickupItems(false);
                     if (option.lookAtEntity()) {
                         actionManager.setAction(player, ActionType.LOOK_AT_NEAREST_ENTITY, ActionSetting.continuous());
                     }
                     if (option.skin()) {
                         skinManager.useDefaultSkin(creator, player);
-                    }
-                    if (option.replenish()) {
-                        replenishManager.setReplenish(player, true);
-                    }
-                    if (option.autofish()) {
-                        autofishManager.setAutofish(player, true);
                     }
 
                     this.network = bridge.createNetwork(address);
@@ -173,6 +166,9 @@ public class Fakeplayer {
                     this.handle.setupClientOptions();   // 处理皮肤设置问题
 
                     this.teleportToSpawnpoint(option.spawnAt().clone());
+                    this.clearStorage();
+                    Bukkit.getScheduler().runTask(Main.getInstance(), this::clearStorage);
+                    this.lastChargedAt = System.currentTimeMillis();
                     this.ticker.runTaskTimer(Main.getInstance(), 0, 1);
                 }));
     }
@@ -205,6 +201,22 @@ public class Fakeplayer {
         });
     }
 
+    /**
+     * 清空除快捷栏与副手以外的槽位
+     * <p>假人只保留主手/副手使用物品的能力</p>
+     */
+    public void clearStorage() {
+        if (!this.player.isOnline()) {
+            return;
+        }
+
+        var inventory = this.player.getInventory();
+        for (int slot = 9; slot <= 39; slot++) {
+            inventory.setItem(slot, null);
+        }
+        this.player.setItemOnCursor(null);
+    }
+
     public boolean isOnline() {
         return this.player.isOnline();
     }
@@ -235,16 +247,15 @@ public class Fakeplayer {
 
     /**
      * 判断是否是创建者
-     * <p>如果玩家下线再重新登陆, entityID 将会不一样导致 {@link Object#equals(Object)} 返回 {@code false}</p>
      *
      * @param sender 命令执行者
      * @return 是否是创建者
      */
     public boolean isCreatedBy(@NotNull CommandSender sender) {
-        if (this.creator instanceof Player pc && sender instanceof Player ps) {
-            return pc.getUniqueId().equals(ps.getUniqueId());
+        if (sender instanceof Player player) {
+            return this.creatorId.equals(player.getUniqueId());
         }
-        return creator.getClass() == sender.getClass() && creator.getName().equals(sender.getName());
+        return this.creator.getClass() == sender.getClass() && this.creator.getName().equals(sender.getName());
     }
 
     public @NotNull UUID getUUID() {

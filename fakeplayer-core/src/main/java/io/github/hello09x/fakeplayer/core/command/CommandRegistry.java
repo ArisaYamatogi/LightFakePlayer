@@ -3,7 +3,6 @@ package io.github.hello09x.fakeplayer.core.command;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import dev.jorel.commandapi.CommandPermission;
-import dev.jorel.commandapi.arguments.EntitySelectorArgument;
 import io.github.hello09x.devtools.command.HelpCommand;
 import io.github.hello09x.devtools.core.utils.ComponentUtils;
 import io.github.hello09x.fakeplayer.api.spi.ActionSetting;
@@ -13,7 +12,6 @@ import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
 import io.github.hello09x.fakeplayer.core.constant.Direction;
 import io.github.hello09x.fakeplayer.core.repository.model.Feature;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
 
 import java.util.List;
 
@@ -28,8 +26,6 @@ public class CommandRegistry {
     @Inject
     private ActionCommand actionCommand;
     @Inject
-    private CmdCommand cmdCommand;
-    @Inject
     private ConfigCommand configCommand;
     @Inject
     private DistanceCommand distanceCommand;
@@ -37,8 +33,6 @@ public class CommandRegistry {
     private ExpmeCommand expmeCommand;
     @Inject
     private HoldCommand holdCommand;
-    @Inject
-    private InvseeCommand invseeCommand;
     @Inject
     private KillCommand killCommand;
     @Inject
@@ -52,8 +46,6 @@ public class CommandRegistry {
     @Inject
     private RespawnCommand respawnCommand;
     @Inject
-    private RideCommand rideCommand;
-    @Inject
     private RotationCommand rotationCommand;
     @Inject
     private SelectCommand selectCommand;
@@ -61,12 +53,6 @@ public class CommandRegistry {
     private SetCommand setCommand;
     @Inject
     private SkinCommand skinCommand;
-    @Inject
-    private SleepCommand sleepCommand;
-    @Inject
-    private SneakCommand sneakCommand;
-    @Inject
-    private SprintCommand sprintCommand;
     @Inject
     private SpawnCommand spawnCommand;
     @Inject
@@ -111,20 +97,18 @@ public class CommandRegistry {
                         command("spawn")
                                 .withPermission(Permission.spawn)
                                 .withShortDescription("fakeplayer.command.spawn.description")
+                                .withArguments(text("id"))
                                 .withOptionalArguments(
-                                        text("name").withPermission(Permission.spawnName),
                                         world("world").withPermission(Permission.spawnLocation),
                                         location("location").withPermission(Permission.spawnLocation))
                                 .executes(spawnCommand::spawn),
                         command("kill")
                                 .withPermission(Permission.kill)
                                 .withShortDescription("fakeplayer.command.kill.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
                                 .withOptionalArguments(fakeplayers("names"))
                                 .executes(killCommand::kill),
                         command("list")
                                 .withPermission(Permission.list)
-                                .withRequirement(CommandSupports::hasFakeplayer)
                                 .withShortDescription("fakeplayer.command.list.description")
                                 .withOptionalArguments(
                                         int32("page", 1),
@@ -143,12 +127,6 @@ public class CommandRegistry {
                                 .withArguments(offlinePlayer("player"))
                                 .withOptionalArguments(fakeplayer("name"))
                                 .executes(skinCommand::skin),
-                        command("invsee")
-                                .withPermission(Permission.invsee)
-                                .withShortDescription("fakeplayer.command.invsee.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withOptionalArguments(fakeplayer("name"))
-                                .executesPlayer(invseeCommand::invsee),
                         command("hold")
                                 .withPermission(Permission.hold)
                                 .withShortDescription("fakeplayer.command.hold.description")
@@ -225,24 +203,6 @@ public class CommandRegistry {
                                 .withRequirement(CommandSupports::hasFakeplayer)
                                 .withSubcommands(newActionCommands(ActionType.ATTACK))
                                 .executes(actionCommand.action(ActionType.ATTACK, ActionSetting.once())),
-                        command("mine")
-                                .withPermission(Permission.mine)
-                                .withShortDescription("fakeplayer.command.mine.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withSubcommands(newActionCommands(ActionType.MINE))
-                                .executes(actionCommand.action(ActionType.MINE, ActionSetting.once())),
-                        command("use")
-                                .withPermission(Permission.use)
-                                .withShortDescription("fakeplayer.command.use.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withSubcommands(newActionCommands(ActionType.USE))
-                                .executes(actionCommand.action(ActionType.USE, ActionSetting.once())),
-                        command("jump")
-                                .withPermission(Permission.jump)
-                                .withShortDescription("fakeplayer.command.jump.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withSubcommands(newActionCommands(ActionType.JUMP))
-                                .executes(actionCommand.action(ActionType.JUMP, ActionSetting.once())),
                         command("drop")
                                 .withPermission(Permission.drop)
                                 .withShortDescription("fakeplayer.command.drop.description")
@@ -255,28 +215,6 @@ public class CommandRegistry {
                                 .withRequirement(CommandSupports::hasFakeplayer)
                                 .withSubcommands(newActionCommands(ActionType.DROP_STACK))
                                 .executes(actionCommand.action(ActionType.DROP_STACK, ActionSetting.once())),
-                        command("dropinv")
-                                .withPermission(Permission.dropinv)
-                                .withShortDescription("fakeplayer.command.dropinv.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withSubcommands(newActionCommands(ActionType.DROP_INVENTORY))
-                                .executes(actionCommand.action(ActionType.DROP_INVENTORY, ActionSetting.once())),
-                        command("sneak")
-                                .withPermission(Permission.sneak)
-                                .withShortDescription("fakeplayer.command.sneak.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withOptionalArguments(
-                                        fakeplayer("name"),
-                                        literals("sneaking", List.of("true", "false")))
-                                .executes(sneakCommand::sneak),
-                        command("sprint")
-                                .withPermission(Permission.sprint)
-                                .withShortDescription("fakeplayer.command.sprint.description")
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withOptionalArguments(
-                                        fakeplayer("name"),
-                                        literals("sprinting", List.of("true", "false")))
-                                .executes(sprintCommand::sprint),
                         command("look")
                                 .withPermission(Permission.look)
                                 .withShortDescription("fakeplayer.command.look.description")
@@ -367,70 +305,18 @@ public class CommandRegistry {
                                 )
                                 .executes(moveCommand.move(1, 0)),
 
-                        command("ride")
-                                .withShortDescription("fakeplayer.command.ride.description")
-                                .withPermission(Permission.ride)
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withSubcommands(
-                                        command("me")
-                                                .withShortDescription("fakeplayer.command.ride.me.description")
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executesPlayer(rideCommand::rideMe),
-                                        command("target")
-                                                .withShortDescription("fakeplayer.command.ride.target.description")
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executes(rideCommand::rideTarget),
-                                        command("anything")
-                                                .withShortDescription("fakeplayer.command.ride.anything.description")
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executes(rideCommand::rideAnything),
-                                        command("vehicle")
-                                                .withShortDescription("fakeplayer.command.ride.vehicle.description")
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executes(rideCommand::rideVehicle),
-                                        command("entity")
-                                                .withShortDescription("fakeplayer.command.ride.entity.description")
-                                                .withArguments(new EntitySelectorArgument.OneEntity("entity"))
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executes(rideCommand::rideEntity),
-                                        command("stop")
-                                                .withShortDescription("fakeplayer.command.ride.stop.description")
-                                                .withOptionalArguments(fakeplayer("name"))
-                                                .executes(rideCommand::stopRiding)
-                                ),
                         command("swap")
                                 .withShortDescription("fakeplayer.command.swap.description")
                                 .withPermission(Permission.swap)
                                 .withRequirement(CommandSupports::hasFakeplayer)
                                 .withOptionalArguments(fakeplayer("name"))
                                 .executes(swapCommand::swap),
-                        command("sleep")
-                                .withShortDescription("fakeplayer.command.sleep.description")
-                                .withPermission(Permission.sleep)
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withOptionalArguments(fakeplayer("name", p -> !p.isSleeping()))
-                                .executes(sleepCommand::sleep),
-                        command("wakeup")
-                                .withShortDescription("fakeplayer.command.wakeup.description")
-                                .withPermission(Permission.wakeup)
-                                .withRequirement(CommandSupports::hasFakeplayer)
-                                .withOptionalArguments(fakeplayer("name", LivingEntity::isSleeping))
-                                .executes(sleepCommand::wakeup),
                         command("stop")
                                 .withShortDescription("fakeplayer.command.stop.description")
                                 .withPermission(Permission.stop)
                                 .withRequirement(CommandSupports::hasFakeplayer)
                                 .withOptionalArguments(fakeplayer("name"))
                                 .executes(stopCommand::stop),
-
-                        command("cmd")
-                                .withShortDescription("fakeplayer.command.cmd.description")
-                                .withRequirement(CommandSupports::isCmdAvailable)
-                                .withArguments(
-                                        fakeplayer("name"),
-                                        new FakePlayerCommandArgument("command")
-                                )
-                                .executes(cmdCommand::cmd),
 
                         command("killall")
                                 .withShortDescription("fakeplayer.command.killall.description")

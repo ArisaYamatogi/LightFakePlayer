@@ -92,12 +92,6 @@
             </dependency>
 
             <dependency>
-                <groupId>com.github.tanyaofei.devtools</groupId>
-                <artifactId>devtools-database</artifactId>
-                <version>${detools.version}</version>
-            </dependency>
-
-            <dependency>
                 <groupId>com.mojang</groupId>
                 <artifactId>authlib</artifactId>
                 <version>4.0.43</version>

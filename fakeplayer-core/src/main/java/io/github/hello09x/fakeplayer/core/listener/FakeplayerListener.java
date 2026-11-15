@@ -10,7 +10,6 @@ import io.github.hello09x.fakeplayer.core.config.FakeplayerConfig;
 import io.github.hello09x.fakeplayer.core.constant.MetadataKeys;
 import io.github.hello09x.fakeplayer.core.manager.FakeplayerManager;
 import io.github.hello09x.fakeplayer.core.repository.FakeplayerProfileRepository;
-import io.github.hello09x.fakeplayer.core.repository.UsedIdRepository;
 import org.bukkit.Bukkit;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -40,14 +39,12 @@ public class FakeplayerListener implements Listener {
     private final static Logger log = Main.getInstance().getLogger();
 
     private final FakeplayerManager manager;
-    private final UsedIdRepository usedIdRepository;
     private final FakeplayerProfileRepository profileRepository;
     private final FakeplayerConfig config;
 
     @Inject
-    public FakeplayerListener(FakeplayerManager manager, UsedIdRepository usedIdRepository, FakeplayerProfileRepository profileRepository, FakeplayerConfig config) {
+    public FakeplayerListener(FakeplayerManager manager, FakeplayerProfileRepository profileRepository, FakeplayerConfig config) {
         this.manager = manager;
-        this.usedIdRepository = usedIdRepository;
         this.profileRepository = profileRepository;
         this.config = config;
     }
@@ -62,7 +59,7 @@ public class FakeplayerListener implements Listener {
             return;
         }
 
-        if (usedIdRepository.contains(player.getUniqueId()) || profileRepository.existsByUUID(player.getUniqueId())) {
+        if (profileRepository.existsByUUID(player.getUniqueId())) {
             event.disallow(PlayerLoginEvent.Result.KICK_OTHER, textOfChildren(
                     translatable("fakeplayer.listener.login.deny-used-uuid", RED),
                     newline(),
@@ -165,7 +162,6 @@ public class FakeplayerListener implements Listener {
     public void onPluginDisable(@NotNull PluginDisableEvent event) {
         if (event.getPlugin() == Main.getInstance()) {
             Exceptions.suppress(Main.getInstance(), manager::onDisable);
-            Exceptions.suppress(Main.getInstance(), usedIdRepository::onDisable);
         }
     }
 

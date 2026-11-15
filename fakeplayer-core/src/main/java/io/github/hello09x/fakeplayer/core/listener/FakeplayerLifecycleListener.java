@@ -49,8 +49,25 @@ public class FakeplayerLifecycleListener implements Listener {
         }
 
         Bukkit.getScheduler().runTaskLater(Main.getInstance(), () -> {
-            if (player.isOnline()) {
-                manager.dispatchCommands(player, config.getAfterSpawnCommands());
+            if (!player.isOnline()) {
+                return;
+            }
+
+            manager.dispatchCommands(player, config.getAfterSpawnCommands());
+
+            if (config.isAuthmeEnabled() && Bukkit.getPluginManager().isPluginEnabled("AuthMe")) {
+                manager.issueCommands(player, config.getAuthmeRegisterCommands());
+                Bukkit.getScheduler().runTaskLater(Main.getInstance(), () -> {
+                    if (player.isOnline()) {
+                        manager.issueCommands(player, config.getAuthmeLoginCommands());
+                    }
+                }, 20L);
+                Bukkit.getScheduler().runTaskLater(Main.getInstance(), () -> {
+                    if (player.isOnline()) {
+                        manager.issueCommands(player, config.getSelfCommands());
+                    }
+                }, 40L);
+            } else {
                 manager.issueCommands(player, config.getSelfCommands());
             }
         }, 20);
@@ -66,19 +83,20 @@ public class FakeplayerLifecycleListener implements Listener {
         }
 
         manager.dispatchCommands(player, config.getPostQuitCommands());
-    }
 
-    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-    public void onAfterQuit(@NotNull PlayerQuitEvent event) {
-        var player = event.getPlayer();
-        if (this.manager.isNotFake(player)) {
-            // Not a fake player
-            return;
+        // cleanup 会在更低优先级移除假人, 因此这里先记录创建者信息供延迟命令使用
+        var afterQuitCommands = config.getAfterQuitCommands();
+        if (!afterQuitCommands.isEmpty()) {
+            var creatorName = manager.getCreatorName(player);
+            var creatorId = manager.getCreatorId(player);
+            if (creatorName != null && creatorId != null) {
+                Bukkit.getScheduler().runTaskLater(
+                        Main.getInstance(),
+                        () -> manager.dispatchCommands(player, afterQuitCommands, creatorName, creatorId),
+                        20
+                );
+            }
         }
-
-        Bukkit.getScheduler().runTaskLater(Main.getInstance(), () -> {
-            manager.dispatchCommands(player, config.getAfterQuitCommands());
-        }, 20);
     }
 
 

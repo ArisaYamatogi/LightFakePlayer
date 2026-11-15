@@ -8,20 +8,13 @@ import lombok.Getter;
 import net.kyori.adventure.translation.Translatable;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
-/**
- * @author tanyaofei
- * @since 2024/8/13
- **/
 @Getter
 @AllArgsConstructor
 public enum Feature implements Translatable, Singletons {
@@ -51,24 +44,6 @@ public enum Feature implements Translatable, Singletons {
     ),
 
     /**
-     * 金刚狼模式 -> 超强的再生能力
-     */
-    wolverine(
-            "fakeplayer.config.wolverine",
-            List.of(Permission.config),
-            List.of("true", "false"),
-            "false",
-            fake -> String.valueOf(Optional.ofNullable(fake.getPotionEffect(PotionEffectType.REGENERATION)).map(PotionEffect::isInfinite).orElse(false)),
-            (faker, value) -> {
-                if (Boolean.parseBoolean(value)) {
-                    faker.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, PotionEffect.INFINITE_DURATION, 4, true, true));
-                } else {
-                    faker.removePotionEffect(PotionEffectType.REGENERATION);
-                }
-            }
-    ),
-
-    /**
      * 是否自动看向实体
      */
     look_at_entity(
@@ -87,18 +62,6 @@ public enum Feature implements Translatable, Singletons {
     ),
 
     /**
-     * 是否能够拾取物品
-     */
-    pickup_items(
-            "fakeplayer.config.pickup_items",
-            List.of(Permission.config),
-            List.of("true", "false"),
-            "true",
-            faker -> String.valueOf(faker.getCanPickupItems()),
-            (faker, value) -> faker.setCanPickupItems(Boolean.parseBoolean(value))
-    ),
-
-    /**
      * 是否使用皮肤
      */
     skin(
@@ -108,30 +71,6 @@ public enum Feature implements Translatable, Singletons {
             "true",
             null,
             null
-    ),
-
-    /**
-     * 是否自动补货
-     */
-    replenish(
-            "fakeplayer.config.replenish",
-            List.of(Permission.config, Permission.replenish),
-            List.of("true", "false"),
-            "false",
-            faker -> String.valueOf(replenishManager.get().isReplenish(faker)),
-            (faker, value) -> replenishManager.get().setReplenish(faker, Boolean.parseBoolean(value))
-    ),
-
-    /**
-     * 是否自动钓鱼
-     */
-    autofish(
-            "fakeplayer.config.autofish",
-            List.of(Permission.config, Permission.autofish),
-            List.of("true", "false"),
-            "false",
-            faker -> String.valueOf(autofishManager.get().isAutofish(faker)),
-            (faker, value) -> autofishManager.get().setAutofish(faker, Boolean.parseBoolean(value))
     ),
     ;
 
@@ -168,18 +107,12 @@ public enum Feature implements Translatable, Singletons {
     }
 
     public boolean testPermissions(@NotNull CommandSender sender) {
-        if (this.permissions.isEmpty()) {
-            return true;
-        }
-
         for (var permission : this.permissions) {
             if (!sender.hasPermission(permission)) {
                 return false;
             }
         }
-
         return true;
     }
-
 
 }

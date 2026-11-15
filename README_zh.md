@@ -4,32 +4,53 @@
 
 这个插件模拟出真实的玩家来保证区块的加载以及怪物的生成，生电服利器。
 
+> ## 本仓库定制版说明
+>
+> 本仓库基于上游 `minecraft-fakeplayer` 精简定制，主要差异：
+>
+> - 假人归属每个玩家；`/fp list`、`/fp kill`、`/fp tp` 等只能操作自己的假人
+> - 归属/名称/特性数据保存在 `plugins/fakeplayer/data.yml`（YAML 文本，无需数据库）
+> - 创建命令改为 `/fp spawn <id>`，ID 仅允许 `A-Z a-z 0-9 _`，长度 1–16，且不能与真实玩家重名（检查在线玩家、离线缓存和 LuckPerms 用户，大小写不敏感）
+> - 删除背包/Invsee/DropInv 等功能，只保留快捷栏主手与副手；主背包和盔甲栏会被持续清空
+> - 删除 sleep / wakeup / mine / jump / use / ride / sneak / sprint / cmd 命令
+> - 删除 wolverine / pickup-items / replenish / autofish 特性
+> - 保留 `self-commands`，并新增 AuthMe 自动注册/登录（密码自动生成并保存在 `secrets.yml`，不会输出给玩家）
+> - 新增按假人存活时长的计时扣费 `charging` 配置
+>
+> 构建方式见 [BUILD.md](BUILD.md)。
+
 ### 支持版本
 
 仅支持 `Paper` 及其下游如 (`Purpur`) 核心，所有测试均在 `Purpur` 进行，因此 `Purpur` 的兼容性最高
 
-要求使用 JAVA 21 及以上
+1.20.x 可在 Java 17 上运行；1.21+ 服务端本身要求 Java 21
 
-+ 支持 `1.20`, `1.20.2`, `1.20.3`, `1.20.4`, `1.20.5`, `1.20.6`
-+ 支持 `1.21`
++ 支持 `1.20.1` ~ `1.20.6`
++ 支持 `1.21` ~ `1.21.10`
 
 ## 特性
 
 1. 你可以召唤假人来帮你保持区块加载、怪物刷新
 2. 大部份命令都可以对这些假人生效，因为他们对于服务器来说就是"真实的"玩家, 如 `kick`, `ban`, `res padd`。
-3. 你可以使用假人的背包来存放物品。
-4. 你可以控制假人执行一些动作比如: 跳跃、攻击、进食、睡觉等等。不仅如此，你还可以将这些行为设置为周期性的。
-5. 发挥你的想象～
+3. 假人只保留主手/副手装备能力，主背包与盔甲栏会被清空。
+4. 你可以控制假人攻击、转向、移动、丢弃手中物品等动作，并可将部分动作设置为周期性。
+5. 每个假人独立计时，可按存活时长执行扣费/奖励命令。
 
 ## 前置插件:
 
-- [CommandAPI](https://commandapi.jorel.dev) (>=9.5.0, <= 9.7.0)
+- [CommandAPI](https://commandapi.jorel.dev) 11.0.0（必需）
+- [AuthMe](https://github.com/AuthMe/AuthMeReloaded)（可选，自动注册/登录时需要）
+- [LuckPerms](https://luckperms.net)（可选，用于拦截仅在 LuckPerms 中存在的玩家 ID）
+- [PlaceholderAPI](https://github.com/PlaceholderAPI/PlaceholderAPI)（可选，扣费命令解析 PAPI 变量时需要）
 
 ## 配置文件
 
 与其他插件不同，Fakeplayer 只会生成一份名为 `config.tmpl.yml` 的**模版**配置文件，你需要将它重命名为 `config.yml` 才能用作配置文件。这样的好处是升级的时候可以提前知道新的内容。
 
 ## 命令
+
+> 下表为上游完整命令列表。本定制版已删除 `invsee`、`dropinv`、`sleep`、`wakeup`、`mine`、`use`、`jump`、`ride`、`sneak`、`sprint`、`cmd`，
+> 并将 `spawn` 改为 `/fp spawn <id>`。`/fp list` 只显示自己的假人。
 
 | 命令            | 作用        | 权限                           | 备注                      |
 |---------------|-----------|------------------------------|-------------------------|

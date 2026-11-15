@@ -6,20 +6,34 @@ English | [简体中文](README_zh.md)
 
 This is a server side plugin inspired by [Carpet-Mod](https://github.com/gnembon/fabric-carpet) for Minecraft `1.20.x` and `1.21.x` and above.
 
-[Click me](https://youtu.be/NePaDz-P5nI) to visit a demo video.
+> ## Customized build
+>
+> This repository contains a trimmed-down customization of the upstream project:
+>
+> - Fake players belong to their creator; `/fp list`, `/fp kill`, `/fp tp` only operate on your own fake players
+> - Ownership/name/feature data is stored in `plugins/fakeplayer/data.yml` (plain YAML, no database)
+> - `/fp spawn <id>` is required; IDs allow `A-Z a-z 0-9 _`, length 1-16, and must not match a real player (online players, offline cache and LuckPerms users are checked, case-insensitively)
+> - The backpack is removed: only the hotbar main hand and offhand are kept, backpack/armor slots are cleared
+> - Removed commands: `invsee`, `dropinv`, `sleep`, `wakeup`, `mine`, `use`, `jump`, `ride`, `sneak`, `sprint`, `cmd`
+> - Removed features: `wolverine`, `pickup-items`, `replenish`, `autofish`
+> - `self-commands` is kept; AuthMe auto register/login uses a generated password stored in `secrets.yml`
+> - Added `charging`: per-fake-player timer that executes console commands
+>
+> See [BUILD.md](BUILD.md) for building.
 
 ## Features
 
 + Lets you spawn fake players who look like real to the server, they can keep chunk loading
 + Fake players can be recolonized by vanilla commands and plugin commands, such as `/ban`, `/tp`
-+ You can open and edit their inventory via `/fp invsee` or Right-Clicking on them
-+ You can fully control their moving, jumping, attacking... What's better ? Make it periodical
-+ Each player can configure his personal configuration
++ Fake players keep main-hand/off-hand equipment only; the backpack is cleared automatically
++ You can control attacking, looking, moving and dropping held items
++ Each player can configure personal features, and each fake player has its own charge timer
 
 ## Requirements
 
 + [Paper](https://papermc.io) or [Purpur](http://purpurmc.org) software
-+ [CommandAPI](https://commandapi.jorel.dev) Plugin (Any version **except** `10.0.0`)
++ [CommandAPI](https://commandapi.jorel.dev) 11.0.0
++ Optional: AuthMe (auto login), LuckPerms (real-player name checks), PlaceholderAPI (charging placeholders)
 
 ## Config file
 

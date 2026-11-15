@@ -33,9 +33,11 @@ public class ListCommand extends AbstractCommand {
         var page = (int) args.getOptional("page").orElse(1);
         var size = (int) args.getOptional("size").orElse(10);
 
-        var fakes = sender.isOp()
-                ? manager.getAll()
-                : manager.getAll(sender);
+        var fakes = manager.getAll(sender);
+        if (fakes.isEmpty()) {
+            sender.sendMessage(translatable("fakeplayer.command.generic.error.non-fake-player", GRAY));
+            return;
+        }
 
         var p = Page.of(fakes, page, size);
 
@@ -50,7 +52,7 @@ public class ListCommand extends AbstractCommand {
                     var partKill = textOfChildren(space(), translatable("fakeplayer.command.list.button.kill", RED)).clickEvent(runCommand("/fp kill " + fakeplayer.getName()));
 
                     return textOfChildren(
-                            text(fakeplayer.getName() + " (" + manager.getCreatorName(fakeplayer) + ")", GOLD),
+                            text(fakeplayer.getName(), GOLD),
                             text(" - ", GRAY),
                             text(toLocationString(fakeplayer.getLocation()), WHITE),
                             partTp,
