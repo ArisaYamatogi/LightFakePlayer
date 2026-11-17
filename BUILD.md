@@ -46,7 +46,7 @@ Mojang 不允许公开分发 remapped NMS jar，上游项目通过 BuildTools �
 本次定制已在以下环境完成启动与核心功能测试：
 
 - Leaves 1.21.8
-- Java 21
+- Java 21 & 25
 - CommandAPI 11.0.0
 - AuthMe 5.7.0
 
